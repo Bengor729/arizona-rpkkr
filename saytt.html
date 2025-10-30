@@ -1,0 +1,309 @@
+`
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Arizona RP — Community</title>
+<style>
+  /* Простой адаптивный стиль */
+  :root{--accent:#b74622;--muted:#777}
+  body{font-family:Inter,Segoe UI,Helvetica,Arial,sans-serif;margin:0;background:#0f1115;color:#eaeef2}
+  header{background:linear-gradient(90deg,#0b1220,#071426);padding:18px 20px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 4px 24px rgba(0,0,0,.6)}
+  .brand{display:flex;gap:12px;align-items:center}
+  .logo{width:44px;height:44px;border-radius:8px;background:linear-gradient(135deg,var(--accent),#ff9a5b);display:flex;align-items:center;justify-content:center;font-weight:700}
+  nav a{color:#e8eef7;margin-left:14px;text-decoration:none}
+  main{padding:22px;max-width:1100px;margin:18px auto}
+  .card{background:#0b0d10;padding:16px;border-radius:10px;box-shadow:0 6px 30px rgba(0,0,0,.6);margin-bottom:14px}
+  h1,h2{margin:0 0 8px 0}
+  .muted{color:var(--muted);font-size:13px}
+  .row{display:flex;gap:12px;align-items:center}
+  .btn{background:var(--accent);border:none;padding:8px 12px;border-radius:8px;color:white;cursor:pointer}
+  input,textarea{background:#081018;border:1px solid #111418;color:#dfe7ee;padding:8px;border-radius:8px;width:100%}
+  .col{display:flex;flex-direction:column;gap:8px}
+  .flex{display:flex;gap:12px}
+  @media(max-width:700px){header{flex-direction:column;gap:10px} .flex{flex-direction:column}}
+  .thread{padding:10px;border-radius:8px;border:1px solid #111418}
+  .post{padding:8px;border-radius:6px;border:1px solid #0f1720;margin-top:8px}
+  .right{margin-left:auto}
+  a.link{color:#9fd3ff}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <div class="logo">AR</div>
+    <div>
+      <div style="font-weight:700">Arizona RP</div>
+      <div class="muted" style="font-size:12px">Community & Forum</div>
+    </div>
+  </div>
+  <nav id="nav">
+    <a href="#" onclick="route('home')">Главная</a>
+    <a href="#" onclick="route('news')">Новости</a>
+    <a href="#" onclick="route('forum')">Форум</a>
+    <a href="#" onclick="route('server')">Статус серверов</a>
+    <span id="authlinks" style="margin-left:16px"></span>
+  </nav>
+</header>
+
+<main id="app">
+  <!-- Контент рендерится JS -->
+</main>
+
+<script>
+const API = '/api';
+let state = { token: localStorage.getItem('token'), user: null };
+
+async function apiFetch(path, opts = {}) {
+  opts.headers = opts.headers || {};
+  if (state.token) opts.headers['Authorization'] = 'Bearer ' + state.token;
+  opts.headers['Content-Type'] = opts.headers['Content-Type'] || 'application/json';
+  if (opts.body && typeof opts.body !== 'string') opts.body = JSON.stringify(opts.body);
+  const res = await fetch(path, opts);
+  const text = await res.text();
+  try {
+    const json = text ? JSON.parse(text) : null;
+    if (!res.ok) throw json || { error: 'HTTP ' + res.status };
+    return json;
+  } catch (e) {
+    throw e;
+  }
+}
+
+async function loadMe() {
+  if (!state.token) { renderNav(); return; }
+  try {
+    const data = await apiFetch(API + '/me');
+    state.user = data.user;
+  } catch (e) {
+    console.warn('me failed', e);
+    state.token = null;
+    localStorage.removeItem('token');
+  }
+  renderNav();
+}
+
+function renderNav() {
+  const auth = document.getElementById('authlinks');
+  if (state.user) {
+    auth.innerHTML = '<span class="muted">Привет, ' + escapeHtml(state.user.username) + '</span> <a href="#" onclick="route(\\'profile\\')" class="link">Профиль</a> <a href="#" onclick="logout()" style="margin-left:10px">Выйти</a>';
+  } else {
+    auth.innerHTML = '<a href="#" onclick="route(\\'login\\')">Вход</a> <a href="#" onclick="route(\\'register\\')" style="margin-left:8px">Регистрация</a>';
+  }
+}
+
+function escapeHtml(s){ if(!s) return ''; return s.replace(/[&<>"]/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+function route(page, extra) {
+  if (page === 'home') renderHome();
+  else if (page === 'news') renderNews();
+  else if (page === 'forum') renderForum();
+  else if (page === 'thread') renderThread(extra);
+  else if (page === 'login') renderLogin();
+  else if (page === 'register') renderRegister();
+  else if (page === 'profile') renderProfile();
+  else if (page === 'server') renderServers();
+  else renderHome();
+}
+
+async function renderHome() {
+  document.getElementById('app').innerHTML = \`
+    <div class="card">
+      <h1>Добро пожаловать на Arizona RP</h1>
+      <div class="muted">Сообщество ролевого сервера — новости, форум и статус серверов.</div>
+      <div style="margin-top:12px" class="flex">
+        <div style="flex:1">
+          <h2>Последние новости</h2>
+          <div id="newslist">Загрузка...</div>
+        </div>
+        <div style="width:320px">
+          <h2>Статус серверов</h2>
+          <div id="serverbox">Загрузка...</div>
+        </div>
+      </div>
+    </div>
+  \`;
+  await renderSmallNews();
+  await renderServersBox();
+}
+
+async function renderSmallNews() {
+  try {
+    const news = await apiFetch(API + '/news');
+    const html = news.slice(0,5).map(n => '<div style="padding:8px;border-bottom:1px solid #0d1115"><strong>'+escapeHtml(n.title)+'</strong><div class="muted" style="font-size:12px">by '+escapeHtml(n.author || 'system')+', '+new Date(n.created_at).toLocaleString()+'</div></div>').join('');
+    document.getElementById('newslist').innerHTML = html || '<div class="muted">новостей нет</div>';
+  } catch (e) {
+    document.getElementById('newslist').innerHTML = '<div class="muted">ошибка загрузки</div>';
+  }
+}
+
+async function renderServersBox() {
+  try {
+    const s = await apiFetch(API + '/servers');
+    const html = s.map(x => '<div style="padding:8px;border-bottom:1px solid #0d1115"><strong>'+escapeHtml(x.name)+'</strong><div class="muted">'+(x.online?('Онлайн — '+x.players+' игроков'):'Офлайн')+'</div></div>').join('');
+    document.getElementById('serverbox').innerHTML = html;
+  } catch (e) {
+    document.getElementById('serverbox').innerHTML = '<div class="muted">не удалось получить статус</div>';
+  }
+}
+
+async function renderNews() {
+  document.getElementById('app').innerHTML = '<div class="card"><h1>Новости</h1><div id="newsfeed">Загрузка...</div></div>';
+  try {
+    const news = await apiFetch(API + '/news');
+    const html = news.map(n => '<div class="card" style="background:#071018;padding:12px"><h3>'+escapeHtml(n.title)+'</h3><div class="muted">by '+escapeHtml(n.author||'system')+' — '+new Date(n.created_at).toLocaleString()+'</div><div style="margin-top:8px">'+escapeHtml(n.content).replace(/\\n/g,'<br>')+'</div></div>').join('');
+    document.getElementById('newsfeed').innerHTML = html || '<div class="muted">новостей нет</div>';
+    if (state.user && state.user.role === 'admin') {
+      const adminBox = document.createElement('div');
+      adminBox.className = 'card';
+      adminBox.innerHTML = '<h3>Создать новость</h3><input id="news_title" placeholder="Заголовок"><textarea id="news_content" rows=4 placeholder="Содержимое"></textarea><button class="btn" onclick="createNews()">Опубликовать</button>';
+      document.getElementById('newsfeed').prepend(adminBox);
+    }
+  } catch (e) {
+    document.getElementById('newsfeed').innerHTML = '<div class="muted">ошибка загрузки</div>';
+  }
+}
+
+async function createNews() {
+  const title = document.getElementById('news_title').value;
+  const content = document.getElementById('news_content').value;
+  try {
+    await apiFetch(API + '/news', { method: 'POST', body: { title, content } });
+    route('news');
+  } catch (e) {
+    alert('Ошибка: ' + (e.error || JSON.stringify(e)));
+  }
+}
+
+async function renderForum() {
+  document.getElementById('app').innerHTML = '<div class="card"><h1>Форум</h1><div id="threads">Загрузка...</div></div>';
+  try {
+    const threads = await apiFetch(API + '/threads');
+    const html = threads.map(t => '<div class="thread"><a href="#" onclick="route(\\'thread\\','+t.id+')"><strong>'+escapeHtml(t.title)+'</strong></a><div class="muted">by '+escapeHtml(t.author)+' — '+new Date(t.created_at).toLocaleString()+' — '+t.replies+' ответов</div></div>').join('');
+    document.getElementById('threads').innerHTML = (state.user?'<div style="margin-bottom:10px"><input id="newthread" placeholder="Новая тема..."><button class="btn" onclick="createThread()">Создать</button></div>':'') + (html || '<div class=\"muted\">тем нет</div>');
+  } catch (e) {
+    document.getElementById('threads').innerHTML = '<div class="muted">ошибка загрузки</div>';
+  }
+}
+
+async function createThread() {
+  const title = document.getElementById('newthread').value;
+  try {
+    await apiFetch(API + '/threads', { method: 'POST', body: { title }});
+    renderForum();
+  } catch (e) {
+    alert('Ошибка: ' + (e.error || JSON.stringify(e)));
+  }
+}
+
+async function renderThread(id) {
+  document.getElementById('app').innerHTML = '<div class="card">Загрузка темы...</div>';
+  try {
+    const data = await apiFetch(API + '/thread/' + id);
+    let html = '<div class="card"><h2>'+escapeHtml(data.thread.title)+'</h2><div class="muted">by '+escapeHtml(data.thread.author)+' — '+new Date(data.thread.created_at).toLocaleString()+'</div>';
+    html += '<div id="posts">';
+    if (data.posts.length === 0) html += '<div class="muted">Пока нет сообщений</div>';
+    data.posts.forEach(p => {
+      html += '<div class="post"><strong>'+escapeHtml(p.author)+'</strong> <span class="muted" style="font-size:12px;margin-left:8px">'+new Date(p.created_at).toLocaleString()+'</span><div style="margin-top:6px">'+escapeHtml(p.content).replace(/\\n/g,'<br>')+'</div></div>';
+    });
+    html += '</div>';
+    if (state.user) {
+      html += '<div style="margin-top:12px"><textarea id="post_content" rows=3 placeholder="Твой ответ..."></textarea><button class="btn" onclick="postReply('+id+')">Отправить</button></div>';
+    } else {
+      html += '<div class="muted" style="margin-top:12px">Войдите, чтобы ответить.</div>';
+    }
+    html += '<div style="margin-top:10px"><a href="#" onclick="route(\\'forum\\')">← назад к форуму</a></div></div>';
+    document.getElementById('app').innerHTML = html;
+  } catch (e) {
+    document.getElementById('app').innerHTML = '<div class="card"><div class="muted">не удалось загрузить тему</div></div>';
+  }
+}
+
+async function postReply(tid) {
+  const content = document.getElementById('post_content').value;
+  try {
+    await apiFetch(API + '/thread/' + tid + '/post', { method: 'POST', body: { content }});
+    renderThread(tid);
+  } catch (e) {
+    alert('Ошибка: ' + (e.error || JSON.stringify(e)));
+  }
+}
+
+function logout(){ state.token = null; state.user = null; localStorage.removeItem('token'); renderNav(); route('home'); }
+
+function renderLogin() {
+  document.getElementById('app').innerHTML = '<div class="card"><h1>Вход</h1><div class="col"><input id="luser" placeholder="Имя"><input id="lpass" type="password" placeholder="Пароль"><div><button class="btn" onclick="doLogin()">Войти</button> <a href="#" onclick="route(\\'register\\')" style="margin-left:8px">Регистрация</a></div></div></div>';
+}
+async function doLogin() {
+  const u = document.getElementById('luser').value;
+  const p = document.getElementById('lpass').value;
+  try {
+    const r = await apiFetch(API + '/login', { method: 'POST', body: { username: u, password: p }});
+    state.token = r.token; localStorage.setItem('token', r.token); state.user = r.user; renderNav(); route('home');
+  } catch (e) {
+    alert('Ошибка входа: ' + (e.error || JSON.stringify(e)));
+  }
+}
+
+function renderRegister() {
+  document.getElementById('app').innerHTML = '<div class="card"><h1>Регистрация</h1><div class="col"><input id="ruser" placeholder="Имя"><input id="remail" placeholder="Email (опционально)"><input id="rpass" type="password" placeholder="Пароль"><div><button class="btn" onclick="doRegister()">Зарегистрироваться</button></div></div></div>';
+}
+async function doRegister() {
+  const u = document.getElementById('ruser').value;
+  const p = document.getElementById('rpass').value;
+  const e = document.getElementById('remail').value;
+  try {
+    const r = await apiFetch(API + '/register', { method: 'POST', body: { username: u, password: p, email: e }});
+    state.token = r.token; localStorage.setItem('token', r.token); state.user = r.user; renderNav(); route('home');
+  } catch (err) {
+    alert('Ошибка регистрации: ' + (err.error || JSON.stringify(err)));
+  }
+}
+
+async function renderProfile() {
+  if (!state.user) { route('login'); return; }
+  document.getElementById('app').innerHTML = '<div class="card"><h1>Профиль</h1><div id="prof">Загрузка...</div></div>';
+  try {
+    const me = await apiFetch(API + '/me');
+    const u = me.user;
+    let html = '<div><strong>' + escapeHtml(u.username) + '</strong> <div class="muted">Роль: ' + escapeHtml(u.role) + '</div><div class="muted">Зарегистрирован: ' + new Date(u.created_at).toLocaleString() + '</div></div>';
+    if (u.role === 'admin') {
+      html += '<div style="margin-top:12px"><a href="#" onclick="adminStats()">Панель администратора</a></div><div id="adminstats"></div>';
+    }
+    document.getElementById('prof').innerHTML = html;
+  } catch (e) {
+    document.getElementById('prof').innerHTML = '<div class="muted">ошибка</div>';
+  }
+}
+
+async function adminStats() {
+  try {
+    const s = await apiFetch(API + '/admin/stats');
+    document.getElementById('adminstats').innerHTML = '<div class="card"><strong>Статистика</strong><div class="muted">Пользователей: '+s.users+'</div><div class="muted">Тем: '+s.threads+'</div><div class="muted">Сообщений: '+s.posts+'</div></div>';
+  } catch (e) {
+    document.getElementById('adminstats').innerHTML = '<div class="muted">не удалось получить статистику (требуется admin)</div>';
+  }
+}
+
+async function renderServers() {
+  document.getElementById('app').innerHTML = '<div class="card"><h1>Статус серверов</h1><div id="serverlist">Загрузка...</div></div>';
+  try {
+    const s = await apiFetch(API + '/servers');
+    const html = s.map(x => '<div class="card"><div style="display:flex;align-items:center"><div><strong>'+escapeHtml(x.name)+'</strong><div class="muted">'+escapeHtml(x.ip)+':'+x.port+'</div></div><div class="right">'+(x.online?('<div style="font-weight:700">'+x.players+' игроков</div>'):'<div class="muted">Офлайн</div>')+'</div></div></div>').join('');
+    document.getElementById('serverlist').innerHTML = html;
+  } catch (e) {
+    document.getElementById('serverlist').innerHTML = '<div class="muted">ошибка</div>';
+  }
+}
+
+// Инициализация
+window.addEventListener('load', async () => {
+  await loadMe();
+  route('home');
+});
+</script>
+</body>
+</html>
+`;
+
